@@ -138,6 +138,7 @@ class _ImageListPageState extends State<ImageListPage> {
   bool _loading = true;
   bool _fixing = false;
   bool _permissionDenied = false;
+  bool _cancelScanRequested = false;
   int _scanProcessed = 0;
   int _scanTotal = 0;
   String _scanAlbum = '';
@@ -153,6 +154,7 @@ class _ImageListPageState extends State<ImageListPage> {
     setState(() {
       _loading = true;
       _permissionDenied = false;
+      _cancelScanRequested = false;
       _scanProcessed = 0;
       _scanTotal = 0;
       _scanAlbum = '';
@@ -192,8 +194,14 @@ class _ImageListPageState extends State<ImageListPage> {
 
       final records = <ImageRecord>[];
       var processed = 0;
+      var wasCancelled = false;
 
       for (final info in pathInfos) {
+        if (_cancelScanRequested) {
+          wasCancelled = true;
+          break;
+        }
+
         final path = info.path;
         final count = info.count;
         if (mounted) {
@@ -206,8 +214,18 @@ class _ImageListPageState extends State<ImageListPage> {
         final pages = (count / pageSize).ceil();
 
         for (var page = 0; page < pages; page++) {
+          if (_cancelScanRequested) {
+            wasCancelled = true;
+            break;
+          }
+
           final assets = await path.getAssetListPaged(page: page, size: pageSize);
           for (final asset in assets) {
+            if (_cancelScanRequested) {
+              wasCancelled = true;
+              break;
+            }
+
             processed++;
             if (mounted && (processed % 25 == 0 || processed == totalAssets)) {
               setState(() {
@@ -234,6 +252,14 @@ class _ImageListPageState extends State<ImageListPage> {
             record.selected = !record.isMatch;
             records.add(record);
           }
+
+          if (wasCancelled) {
+            break;
+          }
+        }
+
+        if (wasCancelled) {
+          break;
         }
       }
 
@@ -241,9 +267,15 @@ class _ImageListPageState extends State<ImageListPage> {
         _images
           ..clear()
           ..addAll(records);
-        _scanProcessed = _scanTotal;
+        _scanProcessed = processed;
         _loading = false;
       });
+
+      if (wasCancelled && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Search canceled. ${records.length} image(s) found.')),
+        );
+      }
     } catch (error) {
       setState(() {
         _loading = false;
@@ -260,6 +292,15 @@ class _ImageListPageState extends State<ImageListPage> {
       return;
     }
     await PhotoManager.openSetting();
+  }
+
+  void _cancelSearch() {
+    if (!_loading || _cancelScanRequested) {
+      return;
+    }
+    setState(() {
+      _cancelScanRequested = true;
+    });
   }
 
   DateTime? _parseDateFromFileName(String name) {
@@ -404,6 +445,12 @@ class _ImageListPageState extends State<ImageListPage> {
                 const SizedBox(height: 8),
                 Text('Album: $_scanAlbum', textAlign: TextAlign.center),
               ],
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _cancelScanRequested ? null : _cancelSearch,
+                icon: const Icon(Icons.stop_circle_outlined),
+                label: Text(_cancelScanRequested ? 'Cancelling...' : 'Cancel search'),
+              ),
             ],
           ),
         ),
