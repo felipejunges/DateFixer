@@ -31,6 +31,7 @@ class ImageRecord {
     required this.exifDate,
     required this.dateSource,
     required this.nameDate,
+    required this.nameHasTime,
     required this.selected,
   });
 
@@ -39,26 +40,42 @@ class ImageRecord {
   final DateTime? exifDate;
   final String dateSource;
   final DateTime? nameDate;
+  final bool nameHasTime;
   bool selected;
 
   bool get isMatch {
     if (exifDate == null || nameDate == null) {
       return false;
     }
-    return exifDate!.year == nameDate!.year &&
+    final sameDate =
+        exifDate!.year == nameDate!.year &&
         exifDate!.month == nameDate!.month &&
-        exifDate!.day == nameDate!.day &&
-        exifDate!.hour == nameDate!.hour &&
+        exifDate!.day == nameDate!.day;
+
+    if (!sameDate) {
+      return false;
+    }
+
+    if (!nameHasTime) {
+      return true;
+    }
+
+    return exifDate!.hour == nameDate!.hour &&
         exifDate!.minute == nameDate!.minute &&
         exifDate!.second == nameDate!.second;
   }
 }
 
 class DateFilePattern {
-  DateFilePattern({required this.regex, required this.parser});
+  DateFilePattern({
+    required this.regex,
+    required this.parser,
+    this.hasTime = true,
+  });
 
   final RegExp regex;
   final DateTime Function(RegExpMatch match) parser;
+  final bool hasTime;
 }
 
 class ImageListPage extends StatefulWidget {
@@ -85,14 +102,12 @@ class _ImageListPageState extends State<ImageListPage> {
       ),
     ),
     DateFilePattern(
-      regex: RegExp(r'IMG-(\d{4})(\d{2})(\d{2})-WA(\d{2})(\d{2})(\d{2})?', caseSensitive: false),
+      regex: RegExp(r'IMG-(\d{4})(\d{2})(\d{2})-WA\d+', caseSensitive: false),
+      hasTime: false,
       parser: (match) => DateTime(
         int.parse(match.group(1)!),
         int.parse(match.group(2)!),
         int.parse(match.group(3)!),
-        int.parse(match.group(4)!),
-        int.parse(match.group(5)!),
-        int.parse(match.group(6) ?? '0'),
       ),
     ),
     DateFilePattern(
@@ -267,14 +282,15 @@ class _ImageListPageState extends State<ImageListPage> {
 
             final name = asset.title ?? file.uri.pathSegments.last;
             final imageDateInfo = await _readImageDate(asset, file);
-            final nameDate = _parseDateFromFileName(name);
+            final nameDateInfo = _parseDateFromFileName(name);
 
             final record = ImageRecord(
               asset: asset,
               name: name,
               exifDate: imageDateInfo.date,
               dateSource: imageDateInfo.source,
-              nameDate: nameDate,
+              nameDate: nameDateInfo?.date,
+              nameHasTime: nameDateInfo?.hasTime ?? false,
               selected: true,
             );
             record.selected = !record.isMatch;
@@ -331,7 +347,7 @@ class _ImageListPageState extends State<ImageListPage> {
     });
   }
 
-  DateTime? _parseDateFromFileName(String name) {
+  ({DateTime date, bool hasTime})? _parseDateFromFileName(String name) {
     final baseName = name.replaceAll(RegExp(r'\.[^.]+$'), '');
     for (final pattern in _patterns) {
       final match = pattern.regex.firstMatch(baseName);
@@ -339,7 +355,7 @@ class _ImageListPageState extends State<ImageListPage> {
         continue;
       }
       try {
-        return pattern.parser(match);
+        return (date: pattern.parser(match), hasTime: pattern.hasTime);
       } catch (_) {
         continue;
       }
@@ -428,6 +444,12 @@ class _ImageListPageState extends State<ImageListPage> {
   }
 
   Future<void> _fixSelected() async {
+    final recordsToProcess =
+        _filteredImages.where((item) => item.selected).toList(growable: false);
+    if (recordsToProcess.isEmpty) {
+      return;
+    }
+
     setState(() {
       _fixing = true;
     });
@@ -436,7 +458,7 @@ class _ImageListPageState extends State<ImageListPage> {
     var skipped = 0;
 
     try {
-      for (final record in _images.where((item) => item.selected)) {
+      for (final record in recordsToProcess) {
         if (record.nameDate == null) {
           skipped++;
           continue;
@@ -495,8 +517,8 @@ class _ImageListPageState extends State<ImageListPage> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedCount = _images.where((item) => item.selected).length;
     final visibleItems = _filteredImages;
+    final selectedCount = visibleItems.where((item) => item.selected).length;
     final selectedVisibleCount = visibleItems.where((item) => item.selected).length;
     final allVisibleSelected =
         visibleItems.isNotEmpty && selectedVisibleCount == visibleItems.length;
@@ -613,8 +635,8 @@ class _ImageListPageState extends State<ImageListPage> {
       return const Center(child: Text('No images found on device.'));
     }
 
-    final mismatchCount = _images.where((item) => !item.isMatch).length;
     final filteredImages = _filteredImages;
+    final mismatchCount = filteredImages.where((item) => !item.isMatch).length;
     return Column(
       children: [
         Padding(
@@ -623,7 +645,7 @@ class _ImageListPageState extends State<ImageListPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Images: ${_images.length} | Showing: ${filteredImages.length} | Mismatch: $mismatchCount | Selected: ${_images.where((item) => item.selected).length}',
+                'On screen: ${filteredImages.length} | Mismatch: $mismatchCount | Selected: ${filteredImages.where((item) => item.selected).length}',
               ),
               const SizedBox(height: 8),
               Wrap(
