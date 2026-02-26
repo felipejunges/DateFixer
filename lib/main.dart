@@ -383,6 +383,49 @@ class _ImageListPageState extends State<ImageListPage> {
     }
   }
 
+  bool _isExifCompatiblePath(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.heic') ||
+        lower.endsWith('.heif');
+  }
+
+  Future<File?> _getWritableAssetFile(AssetEntity asset) async {
+    File? origin;
+    try {
+      final dynamic dynamicAsset = asset;
+      origin = await dynamicAsset.originFile as File?;
+    } catch (_) {
+      origin = null;
+    }
+
+    if (origin != null) {
+      return origin;
+    }
+    return asset.file;
+  }
+
+  bool _datesMatchByPrecision(
+    DateTime left,
+    DateTime right, {
+    required bool compareTime,
+  }) {
+    final sameDate =
+        left.year == right.year &&
+        left.month == right.month &&
+        left.day == right.day;
+    if (!sameDate) {
+      return false;
+    }
+    if (!compareTime) {
+      return true;
+    }
+    return left.hour == right.hour &&
+        left.minute == right.minute &&
+        left.second == right.second;
+  }
+
   Future<({DateTime? date, String source})> _readImageDate(
     AssetEntity asset,
     File file,
@@ -456,17 +499,30 @@ class _ImageListPageState extends State<ImageListPage> {
 
     var fixed = 0;
     var skipped = 0;
+    final skipReasons = <String, int>{};
+
+    void addSkipReason(String reason) {
+      skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
+    }
 
     try {
       for (final record in recordsToProcess) {
         if (record.nameDate == null) {
           skipped++;
+          addSkipReason('No date in filename');
           continue;
         }
 
-        final file = await record.asset.file;
+        final file = await _getWritableAssetFile(record.asset);
         if (file == null) {
           skipped++;
+          addSkipReason('No writable file access');
+          continue;
+        }
+
+        if (!_isExifCompatiblePath(file.path)) {
+          skipped++;
+          addSkipReason('Unsupported image format');
           continue;
         }
 
@@ -477,20 +533,49 @@ class _ImageListPageState extends State<ImageListPage> {
           await exif.writeAttribute('DateTimeOriginal', value);
           await exif.writeAttribute('DateTimeDigitized', value);
           await exif.writeAttribute('DateTime', value);
-          fixed++;
         } catch (_) {
           skipped++;
+          addSkipReason('Write failed');
         } finally {
           await exif?.close();
         }
+
+        final updatedDate = await _readExifDate(file);
+        if (updatedDate == null) {
+          skipped++;
+          addSkipReason('Write not persisted');
+          continue;
+        }
+
+        final matchedAfterWrite = _datesMatchByPrecision(
+          updatedDate,
+          record.nameDate!,
+          compareTime: record.nameHasTime,
+        );
+        if (!matchedAfterWrite) {
+          skipped++;
+          addSkipReason('Write verification mismatch');
+          continue;
+        }
+
+        fixed++;
       }
 
       await _loadImages();
       if (!mounted) {
         return;
       }
+      final reasonsText = skipReasons.entries
+          .map((entry) => '${entry.key}: ${entry.value}')
+          .join(' | ');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fixed: $fixed | Skipped: $skipped')),
+        SnackBar(
+          content: Text(
+            reasonsText.isEmpty
+                ? 'Fixed: $fixed | Skipped: $skipped'
+                : 'Fixed: $fixed | Skipped: $skipped\n$reasonsText',
+          ),
+        ),
       );
     } finally {
       if (mounted) {
