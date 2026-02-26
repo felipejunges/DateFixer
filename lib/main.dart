@@ -29,6 +29,7 @@ class ImageRecord {
     required this.asset,
     required this.name,
     required this.exifDate,
+    required this.dateSource,
     required this.nameDate,
     required this.selected,
   });
@@ -36,6 +37,7 @@ class ImageRecord {
   final AssetEntity asset;
   final String name;
   final DateTime? exifDate;
+  final String dateSource;
   final DateTime? nameDate;
   bool selected;
 
@@ -250,13 +252,14 @@ class _ImageListPageState extends State<ImageListPage> {
             }
 
             final name = asset.title ?? file.uri.pathSegments.last;
-            final exifDate = await _readExifDate(file);
+            final imageDateInfo = await _readImageDate(asset, file);
             final nameDate = _parseDateFromFileName(name);
 
             final record = ImageRecord(
               asset: asset,
               name: name,
-              exifDate: exifDate,
+              exifDate: imageDateInfo.date,
+              dateSource: imageDateInfo.source,
               nameDate: nameDate,
               selected: true,
             );
@@ -315,7 +318,7 @@ class _ImageListPageState extends State<ImageListPage> {
   }
 
   DateTime? _parseDateFromFileName(String name) {
-    final baseName = name.replaceAll(RegExp(r'\\.[^.]+$'), '');
+    final baseName = name.replaceAll(RegExp(r'\.[^.]+$'), '');
     for (final pattern in _patterns) {
       final match = pattern.regex.firstMatch(baseName);
       if (match == null) {
@@ -335,17 +338,79 @@ class _ImageListPageState extends State<ImageListPage> {
     try {
       exif = await Exif.fromPath(file.path);
       final dateValue = await exif.getAttribute('DateTimeOriginal') ??
+          await exif.getAttribute('SubSecDateTimeOriginal') ??
           await exif.getAttribute('DateTimeDigitized') ??
+          await exif.getAttribute('SubSecDateTimeDigitized') ??
           await exif.getAttribute('DateTime');
-      if (dateValue == null || dateValue.trim().isEmpty) {
+      if (dateValue == null) {
         return null;
       }
-      return _exifFormat.parseStrict(dateValue.trim());
+      return _parseExifDateValue(dateValue);
     } catch (_) {
       return null;
     } finally {
       await exif?.close();
     }
+  }
+
+  Future<({DateTime? date, String source})> _readImageDate(
+    AssetEntity asset,
+    File file,
+  ) async {
+    final exifDate = await _readExifDate(file);
+    if (exifDate != null) {
+      return (date: exifDate, source: 'EXIF');
+    }
+
+    final createdDate = _normalizeAssetDate(asset.createDateTime);
+    if (createdDate != null) {
+      return (date: createdDate, source: 'MediaStore');
+    }
+
+    final modifiedDate = _normalizeAssetDate(asset.modifiedDateTime);
+    if (modifiedDate != null) {
+      return (date: modifiedDate, source: 'MediaStore');
+    }
+
+    return (date: null, source: 'Not found');
+  }
+
+  DateTime? _normalizeAssetDate(DateTime? value) {
+    if (value == null) {
+      return null;
+    }
+    if (value.year < 1980) {
+      return null;
+    }
+    return value;
+  }
+
+  DateTime? _parseExifDateValue(String rawValue) {
+    final cleaned = rawValue.replaceAll('\u0000', '').trim();
+    if (cleaned.isEmpty) {
+      return null;
+    }
+
+    final standardMatch = RegExp(
+      r'^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})',
+    ).firstMatch(cleaned);
+    if (standardMatch != null) {
+      return DateTime(
+        int.parse(standardMatch.group(1)!),
+        int.parse(standardMatch.group(2)!),
+        int.parse(standardMatch.group(3)!),
+        int.parse(standardMatch.group(4)!),
+        int.parse(standardMatch.group(5)!),
+        int.parse(standardMatch.group(6)!),
+      );
+    }
+
+    final normalized = cleaned.replaceFirstMapped(
+      RegExp(r'^(\d{4}):(\d{2}):(\d{2})'),
+      (match) => '${match.group(1)}-${match.group(2)}-${match.group(3)}',
+    );
+
+    return DateTime.tryParse(normalized);
   }
 
   Future<void> _fixSelected() async {
@@ -517,7 +582,7 @@ class _ImageListPageState extends State<ImageListPage> {
             itemBuilder: (context, index) {
               final item = _images[index];
               final subtitle =
-                  'EXIF: ${_formatDate(item.exifDate)}  |  Name: ${_formatDate(item.nameDate)}';
+                  'Date (${item.dateSource}): ${_formatDate(item.exifDate)}  |  Name: ${_formatDate(item.nameDate)}';
 
               return CheckboxListTile(
                 value: item.selected,
