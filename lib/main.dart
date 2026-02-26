@@ -479,9 +479,27 @@ class _ImageListPageState extends State<ImageListPage> {
     }
   }
 
+  void _toggleSelectAllOnScreen() {
+    final visibleItems = _filteredImages;
+    if (visibleItems.isEmpty) {
+      return;
+    }
+
+    final allSelected = visibleItems.every((item) => item.selected);
+    setState(() {
+      for (final item in visibleItems) {
+        item.selected = !allSelected;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedCount = _images.where((item) => item.selected).length;
+    final visibleItems = _filteredImages;
+    final selectedVisibleCount = visibleItems.where((item) => item.selected).length;
+    final allVisibleSelected =
+        visibleItems.isNotEmpty && selectedVisibleCount == visibleItems.length;
 
     return Scaffold(
       appBar: AppBar(
@@ -497,16 +515,34 @@ class _ImageListPageState extends State<ImageListPage> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: ElevatedButton.icon(
-            onPressed: _fixing || selectedCount == 0 ? null : _fixSelected,
-            icon: _fixing
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.build),
-            label: Text('Fix selected images ($selectedCount)'),
+          child: Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: _loading || _fixing || visibleItems.isEmpty
+                    ? null
+                    : _toggleSelectAllOnScreen,
+                icon: Icon(allVisibleSelected ? Icons.deselect : Icons.select_all),
+                label: Text(allVisibleSelected ? 'Unselect' : 'Select all'),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _fixing || selectedCount == 0 ? null : _fixSelected,
+                  icon: _fixing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.build),
+                  label: Text('Fix selected images ($selectedCount)'),
+                ),
+              ),
+            ],
           ),
         ),
       ),
