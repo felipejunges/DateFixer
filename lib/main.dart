@@ -152,10 +152,24 @@ class _ImageListPageState extends State<ImageListPage> {
   bool _fixing = false;
   bool _permissionDenied = false;
   bool _cancelScanRequested = false;
+  bool _showMatchedFiles = true;
+  bool _showFilesWithoutNameDate = true;
   int _scanProcessed = 0;
   int _scanTotal = 0;
   String _scanAlbum = '';
   String? _error;
+
+  List<ImageRecord> get _filteredImages {
+    return _images.where((item) {
+      if (!_showMatchedFiles && item.isMatch) {
+        return false;
+      }
+      if (!_showFilesWithoutNameDate && item.nameDate == null) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
 
   @override
   void initState() {
@@ -564,42 +578,72 @@ class _ImageListPageState extends State<ImageListPage> {
     }
 
     final mismatchCount = _images.where((item) => !item.isMatch).length;
+    final filteredImages = _filteredImages;
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(12),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Images: ${_images.length} | Mismatch: $mismatchCount | Selected: ${_images.where((item) => item.selected).length}',
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Images: ${_images.length} | Showing: ${filteredImages.length} | Mismatch: $mismatchCount | Selected: ${_images.where((item) => item.selected).length}',
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilterChip(
+                    label: const Text('Show matched'),
+                    selected: _showMatchedFiles,
+                    onSelected: (value) {
+                      setState(() {
+                        _showMatchedFiles = value;
+                      });
+                    },
+                  ),
+                  FilterChip(
+                    label: const Text('Show no name date'),
+                    selected: _showFilesWithoutNameDate,
+                    onSelected: (value) {
+                      setState(() {
+                        _showFilesWithoutNameDate = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
         Expanded(
-          child: ListView.separated(
-            itemCount: _images.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final item = _images[index];
-              final subtitle =
-                  'Date: ${_formatDate(item.exifDate)} (${item.dateSource})\nName: ${_formatDate(item.nameDate)}';
+          child: filteredImages.isEmpty
+              ? const Center(child: Text('No files match current filters.'))
+              : ListView.separated(
+                  itemCount: filteredImages.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final item = filteredImages[index];
+                    final subtitle =
+                        'Date: ${_formatDate(item.exifDate)} (${item.dateSource})\nName: ${_formatDate(item.nameDate)}';
 
-              return CheckboxListTile(
-                value: item.selected,
-                onChanged: (value) {
-                  setState(() {
-                    item.selected = value ?? false;
-                  });
-                },
-                title: Text(item.name),
-                subtitle: Text(
-                  '$subtitle\nStatus: ${item.isMatch ? 'match' : 'mismatch'}',
+                    return CheckboxListTile(
+                      value: item.selected,
+                      onChanged: (value) {
+                        setState(() {
+                          item.selected = value ?? false;
+                        });
+                      },
+                      title: Text(item.name),
+                      subtitle: Text(
+                        '$subtitle\nStatus: ${item.isMatch ? 'match' : 'mismatch'}',
+                      ),
+                      isThreeLine: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                    );
+                  },
                 ),
-                isThreeLine: true,
-                controlAffinity: ListTileControlAffinity.leading,
-              );
-            },
-          ),
         ),
       ],
     );
