@@ -582,7 +582,7 @@ class _ImageListPageState extends State<ImageListPage> {
             itemBuilder: (context, index) {
               final item = _images[index];
               final subtitle =
-                  'Date (${item.dateSource}): ${_formatDate(item.exifDate)}  |  Name: ${_formatDate(item.nameDate)}';
+                  'Date: ${_formatDate(item.exifDate)} (${item.dateSource})\nName: ${_formatDate(item.nameDate)}';
 
               return CheckboxListTile(
                 value: item.selected,
