@@ -83,6 +83,17 @@ class _ImageListPageState extends State<ImageListPage> {
       ),
     ),
     DateFilePattern(
+      regex: RegExp(r'IMG-(\d{4})(\d{2})(\d{2})-WA(\d{2})(\d{2})(\d{2})?', caseSensitive: false),
+      parser: (match) => DateTime(
+        int.parse(match.group(1)!),
+        int.parse(match.group(2)!),
+        int.parse(match.group(3)!),
+        int.parse(match.group(4)!),
+        int.parse(match.group(5)!),
+        int.parse(match.group(6) ?? '0'),
+      ),
+    ),
+    DateFilePattern(
       regex: RegExp(r'(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})'),
       parser: (match) => DateTime(
         int.parse(match.group(1)!),
