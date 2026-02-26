@@ -138,6 +138,9 @@ class _ImageListPageState extends State<ImageListPage> {
   bool _loading = true;
   bool _fixing = false;
   bool _permissionDenied = false;
+  int _scanProcessed = 0;
+  int _scanTotal = 0;
+  String _scanAlbum = '';
   String? _error;
 
   @override
@@ -150,6 +153,9 @@ class _ImageListPageState extends State<ImageListPage> {
     setState(() {
       _loading = true;
       _permissionDenied = false;
+      _scanProcessed = 0;
+      _scanTotal = 0;
+      _scanAlbum = '';
       _error = null;
       _images.clear();
     });
@@ -170,16 +176,45 @@ class _ImageListPageState extends State<ImageListPage> {
         onlyAll: true,
       );
 
-      final records = <ImageRecord>[];
-
+      final pathInfos = <({AssetPathEntity path, int count})>[];
+      var totalAssets = 0;
       for (final path in paths) {
         final count = await path.assetCountAsync;
+        pathInfos.add((path: path, count: count));
+        totalAssets += count;
+      }
+
+      if (mounted) {
+        setState(() {
+          _scanTotal = totalAssets;
+        });
+      }
+
+      final records = <ImageRecord>[];
+      var processed = 0;
+
+      for (final info in pathInfos) {
+        final path = info.path;
+        final count = info.count;
+        if (mounted) {
+          setState(() {
+            _scanAlbum = path.name;
+          });
+        }
+
         const pageSize = 200;
         final pages = (count / pageSize).ceil();
 
         for (var page = 0; page < pages; page++) {
           final assets = await path.getAssetListPaged(page: page, size: pageSize);
           for (final asset in assets) {
+            processed++;
+            if (mounted && (processed % 25 == 0 || processed == totalAssets)) {
+              setState(() {
+                _scanProcessed = processed;
+              });
+            }
+
             final file = await asset.file;
             if (file == null) {
               continue;
@@ -206,6 +241,7 @@ class _ImageListPageState extends State<ImageListPage> {
         _images
           ..clear()
           ..addAll(records);
+        _scanProcessed = _scanTotal;
         _loading = false;
       });
     } catch (error) {
@@ -348,7 +384,30 @@ class _ImageListPageState extends State<ImageListPage> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      final progress = _scanTotal > 0 ? _scanProcessed / _scanTotal : null;
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 12),
+              const Text('Searching images...'),
+              if (_scanTotal > 0) ...[
+                const SizedBox(height: 8),
+                Text('$_scanProcessed / $_scanTotal processed'),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: progress),
+              ],
+              if (_scanAlbum.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Album: $_scanAlbum', textAlign: TextAlign.center),
+              ],
+            ],
+          ),
+        ),
+      );
     }
 
     if (_error != null) {
